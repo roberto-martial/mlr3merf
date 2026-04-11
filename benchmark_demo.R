@@ -1,70 +1,73 @@
 library(mlr3)
 library(mlr3learners)
-library(mlr3tuning)
-library(mlr3merf)
 library(ggplot2)
 
-#
-set.seed(42)
+devtools::load_all()
 
-# mtcars
-t1 = tsk("mtcars")$clone()
-t1$id = "mtcars_final"
-t1$col_roles$group = "cyl"
-
-#  dataset Orange
+# des données
+data("mtcars", package = "datasets")
 data("Orange", package = "datasets")
+
 orange_clean = Orange
 orange_clean$Tree = as.numeric(as.character(orange_clean$Tree))
-t2 = as_task_regr(orange_clean, target = "age", id = "orange_final")
-t2$col_roles$group = "Tree"
 
-tasks = list(t1, t2)
+t_mtcars = as_task_regr(mtcars, target = "mpg", id = "mtcars")
+t_mtcars$col_roles$group = "cyl"
 
-# Definir 4 Learners
-#  nouveau Learner
-l_merf = LearnerRegrMERF$new()
-l_merf$id = "regr.merf"
+t_orange = as_task_regr(orange_clean, target = "age", id = "orange")
+t_orange$col_roles$group = "Tree"
 
-# Featureless
-l_feat = lrn("regr.featureless")
+tasks = list(t_mtcars, t_orange)
 
-# Modèle Linéaire (CV Glmnet)
-l_glm  = lrn("regr.cv_glmnet")
-
-#  Plus proches voisins (KNN) avec Auto-Tuning
-l_knn = lrn("regr.kknn")
-at_knn = auto_tuner(
-  tuner = tnr("grid_search", resolution = 30),
-  learner = l_knn,
-  resampling = rsmp("holdout"),
-  measure = msr("regr.rmse"),
-  search_space = paradox::ps(k = paradox::p_int(lower = 1, upper = 30))
-)
-at_knn$id = "knn.tuned"
-
-learners = list(l_merf, l_feat, l_glm, at_knn)
-
-# Benchmark
-cv5 = rsmp("cv", folds = 5)
-
-design = benchmark_grid(
-  tasks = tasks,
-  learners = learners,
-  resamplings = cv5
+#  Liste des Learners
+learners = list(
+  LearnerRegrMERF$new(),
+  lrn("regr.featureless", id = "Featureless"),
+  lrn("regr.cv_glmnet", id = "GLMnet")
 )
 
-bmr = benchmark(design)
-# On récupère les scores individuels de chaque 'fold'
-results = bmr$score(msr("regr.rmse"))
+# boucle de Benchmark
+print("Démarrage du benchmark manuel")
+results_list = list()
 
-#  Graphique ggplot2
-ggplot(results, aes(x = regr.rmse, y = learner_id)) +
-  geom_point(size = 3, alpha = 0.7, shape = 1) +
+for (t in tasks) {
+  for (l in learners) {
+    if (inherits(l, "LearnerRegrMERF")) l$id = "MERF"
+
+    print(paste("Test de", l$id, "sur", t$id))
+
+    set.seed(42)
+    split = partition(t, ratio = 0.8)
+
+    l$train(t, split$train)
+    p = l$predict(t, split$test)
+
+    rmse = p$score(msr("regr.rmse"))
+
+    results_list[[length(results_list) + 1]] = data.frame(
+      task_id = t$id,
+      learner_id = l$id,
+      regr.rmse = rmse
+    )
+  }
+}
+
+final_results = do.call(rbind, results_list)
+
+# Graphique
+print("Génération du graphique")
+ggplot(final_results, aes(x = regr.rmse, y = learner_id)) +
+  geom_point(
+    size = 3,
+    alpha = 0.7,
+    shape = 1,
+    position = position_jitter(height = 0.1)
+  ) +
   facet_grid(. ~ task_id, scales = "free_x") +
+  scale_y_discrete(limits = rev) +
   theme_bw() +
   labs(
-    x = "RMSE (Taux d'erreur)",
-    y = "Algorithme",
-    title = "Résultats du Benchmark"
+    title = "Benchmark Results",
+    x = "Prediction Error (RMSE)",
+    y = "Algorithm"
   )
