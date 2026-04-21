@@ -20,7 +20,7 @@ LearnerRegrMERF = R6::R6Class("LearnerRegrMERF",
 
                                   super$initialize(
                                     id = "regr.merf",
-                                    packages = c("LongituRF", "randomForest"),
+                                    packages = "LongituRF", # randomForest supprimé ici
                                     feature_types = c("numeric", "integer", "character", "factor"),
                                     predict_types = "response",
                                     param_set = ps,
@@ -35,36 +35,42 @@ LearnerRegrMERF = R6::R6Class("LearnerRegrMERF",
                                   X = as.data.frame(data[, task$feature_names, with = FALSE])
                                   Y = task$truth()
 
-                                  #  grouping variable
+                                  # grouping variables
                                   if (is.null(task$groups)) stop("Task must have a group role for regr.merf")
                                   id_vec = as.character(task$groups$group)
                                   Z_mat = matrix(1, nrow = nrow(X), ncol = 1)
                                   time_vec = as.numeric(seq_along(Y))
 
-                                  # try catch
-                                  model = tryCatch({
-                                    LongituRF::MERF(X = X, Y = Y, Z = Z_mat, id = id_vec, time = time_vec,
-                                                    iter = pars$iter, sto = pars$sto)
-                                  }, error = function(e) {
-                                    warning("MERF solver failed (0-diml).")
-                                    m = randomForest::randomForest(x = X, y = Y)
-                                    class(m) = c("MERF_fallback", class(m))
-                                    return(m)
-                                  })
+                                  # Appel direct à MERF
+                                  model = LongituRF::MERF(
+                                    X = X,
+                                    Y = Y,
+                                    Z = Z_mat,
+                                    id = id_vec,
+                                    time = time_vec,
+                                    iter = pars$iter,
+                                    sto = pars$sto
+                                  )
+
                                   return(model)
                                 },
 
                                 .predict = function(task) {
                                   newdata = as.data.frame(task$data(cols = task$feature_names))
 
-                                  if (inherits(self$model, "MERF_fallback")) {
-                                    p = predict(self$model, newdata = newdata)
-                                  } else {
-                                    id_new = as.character(task$groups$group)
-                                    Z_new = matrix(1, nrow = nrow(newdata), ncol = 1)
-                                    time_new = as.numeric(seq_along(id_new))
-                                    p = predict(self$model, X = newdata, Z = Z_new, id = id_new, time = time_new)
-                                  }
+                                  #
+                                  id_new = as.character(task$groups$group)
+                                  Z_new = matrix(1, nrow = nrow(newdata), ncol = 1)
+                                  time_new = as.numeric(seq_along(id_new))
+
+                                  p = predict(
+                                    self$model,
+                                    X = newdata,
+                                    Z = Z_new,
+                                    id = id_new,
+                                    time = time_new
+                                  )
+
                                   list(response = as.numeric(p))
                                 }
                               )
