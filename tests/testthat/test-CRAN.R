@@ -1,26 +1,30 @@
 library(mlr3)
-library(checkmate)
 
-test_that("regr.merf works with fallback", {
+test_that("regr.merf trains and predicts with valid task", {
   set.seed(123)
-  # Data that triggers
   data = data.frame(
-    x = runif(20),
-    grp = rep(c("A", "B"), each = 10),
-    y = runif(20)
+    x1  = runif(30),
+    x2  = runif(30),
+    grp = rep(1:3, each = 10),
+    y   = runif(30)
   )
-  task = as_task_regr(data, target = "y")
-  task$col_roles$group = "grp"
+  task = as_task_regr(data, target = "y", id = "test")
+  task$col_roles$group   = "grp"
+  task$col_roles$feature = setdiff(task$feature_names, "grp")
 
   learner = LearnerRegrMERF$new()
+  expect_no_error(learner$train(task))
+  expect_false(is.null(learner$model))
 
-  #
-  expect_warning(learner$train(task), "MERF solver failed")
-
-  # Check that we can still predict
   p = learner$predict(task)
-  expect_numeric(p$response, len = 20, any.missing = FALSE)
+  expect_numeric(p$response, len = 30, any.missing = FALSE)
+})
 
-  # Check that the model object exists
-  expect_true(!is.null(learner$model))
+test_that("regr.merf errors without group role", {
+  set.seed(123)
+  data = data.frame(x = runif(10), y = runif(10))
+  task = as_task_regr(data, target = "y", id = "nogroup")
+
+  learner = LearnerRegrMERF$new()
+  expect_error(learner$train(task), "group role")
 })

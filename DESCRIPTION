@@ -15,6 +15,7 @@ Imports:
     LongituRF
 Suggests:
     testthat (>= 3.0.0),
+    checkmate,
     mlr3learners,
     mlr3tuning,
     kknn,
