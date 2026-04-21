@@ -28,16 +28,19 @@ LearnerRegrMERF = R6::R6Class("LearnerRegrMERF",
                               ),
                               private = list(
                                 .train = function(task) {
+
                                   pars   = self$param_set$get_values(tags = "train")
                                   X      = as.data.frame(task$data(cols = task$feature_names))
                                   Y      = task$truth()
+
                                   id_col = task$col_roles$group
 
                                   if (length(id_col) == 0) {
-                                    stop("Task must have a group role for regr.merf")
+                                    id_vec = rep("1", nrow(X))
+                                  } else {
+                                    id_vec = as.character(task$data(cols = id_col)[[1]])
                                   }
 
-                                  id_vec   = as.character(task$data(cols = id_col)[[1]])
                                   Z_mat    = matrix(1, nrow = nrow(X), ncol = 1)
                                   time_vec = seq_along(Y)
 
@@ -51,18 +54,20 @@ LearnerRegrMERF = R6::R6Class("LearnerRegrMERF",
                                     sto  = pars$sto
                                   )
 
-                                  invisible(self$model)
+                                  self$model
                                 },
 
                                 .predict = function(task) {
+
                                   newdata = as.data.frame(task$data(cols = task$feature_names))
                                   id_col  = task$col_roles$group
 
                                   if (length(id_col) == 0) {
-                                    stop("Prediction task must have a group role")
+                                    id_new = rep("1", nrow(newdata))
+                                  } else {
+                                    id_new = as.character(task$data(cols = id_col)[[1]])
                                   }
 
-                                  id_new   = as.character(task$data(cols = id_col)[[1]])
                                   Z_new    = matrix(1, nrow = nrow(newdata), ncol = 1)
                                   time_new = seq_along(id_new)
 
