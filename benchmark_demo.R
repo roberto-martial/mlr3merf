@@ -33,7 +33,7 @@ t_orange$col_roles$group = "Tree"
 tasks = list(t_mtcars, t_orange)
 
 
-#  Liste des Learners
+# Liste des Learners
 
 learners = list(
 
@@ -126,5 +126,4 @@ ggplot(final_results, aes(x = regr.rmse, y = learner_id)) +
 
     y = "Algorithm"
 
-  )
-plus proche voisins, avec auto_tuner pour choisir le meilleur nombre de voisins entre 1 et 30. ajoute ceci dans lzs learners
+  )arners
