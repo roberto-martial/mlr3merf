@@ -6,127 +6,149 @@
 #' @templateVar id regr.merf
 #' @importFrom LongituRF MERF
 #' @export
-LearnerRegrMERF = R6::R6Class("LearnerRegrMERF",
-                              inherit = mlr3::LearnerRegr,
 
-                              public = list(
+LearnerRegrMERF = R6::R6Class(
+  "LearnerRegrMERF",
+  inherit = mlr3::LearnerRegr,
 
-                                initialize = function() {
+  public = list(
 
-                                  ps = paradox::ps(
-                                    iter     = paradox::p_int(default = 10, lower = 1, tags = "train"),
-                                    sto      = paradox::p_dbl(default = 1e-2, lower = 0, tags = "train"),
-                                    z_cols   = paradox::p_chr(default = NULL, tags = "train"),
-                                    time_col = paradox::p_chr(tags = "train")  # required
-                                  )
+    initialize = function() {
 
-                                  super$initialize(
-                                    id            = "regr.merf",
-                                    packages      = "LongituRF",
-                                    feature_types = c("numeric", "integer", "factor"),
-                                    predict_types = "response",
-                                    param_set     = ps,
-                                    properties    = character(0)
-                                  )
-                                }
-                              ),
+      ps = paradox::ps(
+        iter     = paradox::p_int(default = 10, lower = 1, tags = "train"),
+        sto      = paradox::p_dbl(default = 1e-2, lower = 0, tags = "train"),
 
-                              private = list(
+        # FIX: stable across paradox versions
+        z_cols   = paradox::p_uty(default = NULL, tags = "train"),
+        time_col = paradox::p_uty(tags = "train")
+      )
 
-                                .train = function(task) {
+      super$initialize(
+        id            = "regr.merf",
+        packages      = "LongituRF",
+        feature_types = c("numeric", "integer", "factor"),
+        predict_types = "response",
+        param_set     = ps,
+        properties    = character(0)
+      )
+    }
+  ),
 
-                                  pars = self$param_set$get_values(tags = "train")
+  private = list(
 
-                                  X = as.data.frame(task$data(cols = task$feature_names))
-                                  Y = task$truth()
+    .train = function(task) {
 
-                                  # GROUP
-                                  id_col = task$col_roles$group
-                                  if (length(id_col) == 0) {
-                                    stop("MERF requires a 'group' role.")
-                                  }
-                                  id_vec = as.character(task$data(cols = id_col)[[1]])
+      pars = self$param_set$get_values(tags = "train")
 
-                                  # VALIDATION
-                                  if (!pars$time_col %in% task$col_names) {
-                                    stop("time_col not found in task.")
-                                  }
+      X = as.data.frame(task$data(cols = task$feature_names))
+      Y = task$truth()
 
-                                  time_vec = task$data(cols = pars$time_col)[[1]]
+      # ------------------------
+      id_col = task$col_roles$group
+      if (length(id_col) == 0) {
+        stop("MERF requires a 'group' role.")
+      }
+      id_vec = as.character(task$data(cols = id_col)[[1]])
 
-                                  # Z MATRIX
-                                  if (is.null(pars$z_cols)) {
-                                    Z_mat = matrix(1, nrow = nrow(X), ncol = 1)
-                                  } else {
-                                    if (!all(pars$z_cols %in% task$col_names)) {
-                                      stop("Some z_cols not found in task.")
-                                    }
-                                    Z_mat = as.matrix(task$data(cols = pars$z_cols))
-                                  }
+      # ------------------------
+      if (is.null(pars$time_col)) {
+        stop("time_col must be provided.")
+      }
 
-                                  # SORT (important for longitudinal data)
-                                  ord = order(id_vec, time_vec)
+      if (!pars$time_col %in% task$col_names) {
+        stop("time_col not found in task.")
+      }
 
-                                  X        = X[ord, , drop = FALSE]
-                                  Y        = Y[ord]
-                                  Z_mat    = Z_mat[ord, , drop = FALSE]
-                                  id_vec   = id_vec[ord]
-                                  time_vec = time_vec[ord]
+      time_vec = task$data(cols = pars$time_col)[[1]]
 
-                                  # STORE STATE
-                                  self$state = list(
-                                    z_cols   = pars$z_cols,
-                                    time_col = pars$time_col
-                                  )
+      if (is.null(pars$z_cols)) {
 
-                                  # TRAIN
-                                  self$model = LongituRF::MERF(
-                                    X    = X,
-                                    Y    = Y,
-                                    Z    = Z_mat,
-                                    id   = id_vec,
-                                    time = time_vec,
-                                    iter = pars$iter,
-                                    sto  = pars$sto
-                                  )
+        Z_mat = matrix(1, nrow = nrow(X), ncol = 1)
 
-                                  self$model
-                                },
+      } else {
 
-                                .predict = function(task) {
+        if (!all(pars$z_cols %in% task$col_names)) {
+          stop("Some z_cols not found in task.")
+        }
 
-                                  newdata = as.data.frame(task$data(cols = task$feature_names))
+        Z_mat = data.matrix(task$data(cols = pars$z_cols))
+      }
 
-                                  id_col = task$col_roles$group
-                                  if (length(id_col) == 0) {
-                                    stop("Prediction requires 'group' role.")
-                                  }
-                                  id_new = as.character(task$data(cols = id_col)[[1]])
+      ord = order(id_vec, time_vec)
 
-                                  z_cols   = self$state$z_cols
-                                  time_col = self$state$time_col
+      X        = X[ord, , drop = FALSE]
+      Y        = Y[ord]
+      Z_mat    = Z_mat[ord, , drop = FALSE]
+      id_vec   = id_vec[ord]
+      time_vec = time_vec[ord]
 
-                                  if (!time_col %in% task$col_names) {
-                                    stop("time_col not found in prediction task.")
-                                  }
+      self$state = list(
+        z_cols   = pars$z_cols,
+        time_col = pars$time_col
+      )
 
-                                  time_new = task$data(cols = time_col)[[1]]
 
-                                  if (is.null(z_cols)) {
-                                    Z_new = matrix(1, nrow = nrow(newdata), ncol = 1)
-                                  } else {
-                                    Z_new = as.matrix(task$data(cols = z_cols))
-                                  }
+      self$model = LongituRF::MERF(
+        X    = X,
+        Y    = Y,
+        Z    = Z_mat,
+        id   = id_vec,
+        time = time_vec,
+        iter = pars$iter,
+        sto  = pars$sto
+      )
 
-                                  p = predict(
-                                    self$model,
-                                    X    = newdata,
-                                    Z    = Z_new,
-                                    id   = id_new,
-                                    time = time_new
-                                  )
+      self$model
+    },
 
-                                  list(response = as.numeric(p))
-                                }
-                              )
+    .predict = function(task) {
+
+      newdata = as.data.frame(task$data(cols = task$feature_names))
+
+      # ------------------------
+      id_col = task$col_roles$group
+      if (length(id_col) == 0) {
+        stop("Prediction requires 'group' role.")
+      }
+      id_new = as.character(task$data(cols = id_col)[[1]])
+
+      # ------------------------
+      if (is.null(self$state)) {
+        stop("Model state is missing. Did training run correctly?")
+      }
+
+      z_cols   = self$state$z_cols
+      time_col = self$state$time_col
+
+      if (is.null(time_col)) {
+        stop("time_col missing in model state.")
+      }
+
+      if (!time_col %in% task$col_names) {
+        stop("time_col not found in prediction task.")
+      }
+
+      time_new = task$data(cols = time_col)[[1]]
+
+      if (is.null(z_cols)) {
+
+        Z_new = matrix(1, nrow = nrow(newdata), ncol = 1)
+
+      } else {
+
+        Z_new = data.matrix(task$data(cols = z_cols))
+      }
+
+      p = predict(
+        self$model,
+        X    = newdata,
+        Z    = Z_new,
+        id   = id_new,
+        time = time_new
+      )
+
+      list(response = as.numeric(p))
+    }
+  )
 )
