@@ -1,3 +1,11 @@
+#' @title Regression Mixed-Effect Random Forest Learner
+#' @name mlr_learners_regr.merf
+#'
+#' @description
+#' Mixed-Effect Random Forest learner for regression.
+#' @templateVar id regr.merf
+#' @importFrom LongituRF MERF
+#' @export
 LearnerRegrMERF = R6::R6Class("LearnerRegrMERF",
                               inherit = mlr3::LearnerRegr,
 
