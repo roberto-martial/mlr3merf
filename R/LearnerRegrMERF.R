@@ -5,6 +5,8 @@
 #' Mixed-Effect Random Forest learner for regression.
 #' @templateVar id regr.merf
 #' @importFrom LongituRF MERF
+#' @importFrom mlr3 LearnerRegr
+#' @importFrom paradox ps p_int p_dbl p_fct p_uty
 #' @export
 
 LearnerRegrMERF = R6::R6Class(
@@ -16,12 +18,25 @@ LearnerRegrMERF = R6::R6Class(
     initialize = function() {
 
       ps = paradox::ps(
-        iter     = paradox::p_int(default = 10, lower = 1, tags = "train"),
-        sto      = paradox::p_dbl(default = 1e-2, lower = 0, tags = "train"),
+        iter     = paradox::p_int(default = 100, lower = 1,   tags = "train"),
+        ntree    = paradox::p_int(default = 500, lower = 1,   tags = "train"),
+        mtry     = paradox::p_uty(default = NULL,             tags = "train"),
+        sto      = paradox::p_fct(
+          default = "none",
+          levels  = c("none", "BM", "OrnUhl", "BBridge", "fbm"),
+          tags    = "train"
+        ),
+        delta    = paradox::p_dbl(default = 0.001, lower = 0, tags = "train"),
+        z_cols   = paradox::p_uty(default = NULL,             tags = "train"),
+        time_col = paradox::p_uty(                            tags = "train")
+      )
 
-        # FIX: stable across paradox versions
-        z_cols   = paradox::p_uty(default = NULL, tags = "train"),
-        time_col = paradox::p_uty(tags = "train")
+      # Force les valeurs par défaut
+      ps$values = list(
+        iter  = 100L,
+        ntree = 500L,
+        sto   = "none",
+        delta = 0.001
       )
 
       super$initialize(
@@ -41,62 +56,78 @@ LearnerRegrMERF = R6::R6Class(
 
       pars = self$param_set$get_values(tags = "train")
 
-      X = as.data.frame(task$data(cols = task$feature_names))
-      Y = task$truth()
+      # Sécurité sur les défauts
+      if (is.null(pars$iter))  pars$iter  = 100L
+      if (is.null(pars$ntree)) pars$ntree = 500L
+      if (is.null(pars$sto))   pars$sto   = "none"
+      if (is.null(pars$delta)) pars$delta = 0.001
 
-      # ------------------------
+      all_cols = task$backend$colnames
+
+      # GROUP
       id_col = task$col_roles$group
       if (length(id_col) == 0) {
         stop("MERF requires a 'group' role.")
       }
-      id_vec = as.character(task$data(cols = id_col)[[1]])
 
-      # ------------------------
+      # TIME
       if (is.null(pars$time_col)) {
         stop("time_col must be provided.")
       }
-
-      if (!pars$time_col %in% task$col_names) {
+      if (!pars$time_col %in% all_cols) {
         stop("time_col not found in task.")
       }
 
-      time_vec = task$data(cols = pars$time_col)[[1]]
+      X = as.data.frame(task$data(cols = task$feature_names))
+      Y = task$truth()
 
+      # Récupère group et time via le backend
+      id_vec = as.numeric(
+        task$backend$data(rows = task$row_ids, cols = id_col)[[1]]
+      )
+      time_vec = as.numeric(
+        task$backend$data(rows = task$row_ids, cols = pars$time_col)[[1]]
+      )
+
+      # Z matrix
       if (is.null(pars$z_cols)) {
-
         Z_mat = matrix(1, nrow = nrow(X), ncol = 1)
-
       } else {
-
-        if (!all(pars$z_cols %in% task$col_names)) {
+        if (!all(pars$z_cols %in% all_cols)) {
           stop("Some z_cols not found in task.")
         }
-
         Z_mat = data.matrix(task$data(cols = pars$z_cols))
       }
 
-      ord = order(id_vec, time_vec)
-
+      # SORT
+      ord      = order(id_vec, time_vec)
       X        = X[ord, , drop = FALSE]
       Y        = Y[ord]
       Z_mat    = Z_mat[ord, , drop = FALSE]
       id_vec   = id_vec[ord]
       time_vec = time_vec[ord]
 
+      # Store state
       self$state = list(
         z_cols   = pars$z_cols,
         time_col = pars$time_col
       )
 
+      #
+      mtry_val = if (is.null(pars$mtry)) ceiling(ncol(X) / 3) else as.integer(pars$mtry)
 
+      # Train
       self$model = LongituRF::MERF(
-        X    = X,
-        Y    = Y,
-        Z    = Z_mat,
-        id   = id_vec,
-        time = time_vec,
-        iter = pars$iter,
-        sto  = pars$sto
+        X     = X,
+        Y     = Y,
+        Z     = Z_mat,
+        id    = id_vec,
+        time  = time_vec,
+        iter  = pars$iter,
+        mtry  = mtry_val,
+        ntree = pars$ntree,
+        sto   = pars$sto,
+        delta = pars$delta
       )
 
       self$model
@@ -104,18 +135,21 @@ LearnerRegrMERF = R6::R6Class(
 
     .predict = function(task) {
 
-      newdata = as.data.frame(task$data(cols = task$feature_names))
+      if (is.null(self$model)) {
+        stop("Model has not been trained.")
+      }
 
-      # ------------------------
+      all_cols = task$backend$colnames
+
+      # Group
       id_col = task$col_roles$group
       if (length(id_col) == 0) {
         stop("Prediction requires 'group' role.")
       }
-      id_new = as.character(task$data(cols = id_col)[[1]])
 
-      # ------------------------
+      # STATE
       if (is.null(self$state)) {
-        stop("Model state is missing. Did training run correctly?")
+        stop("Model state missing.")
       }
 
       z_cols   = self$state$z_cols
@@ -124,22 +158,31 @@ LearnerRegrMERF = R6::R6Class(
       if (is.null(time_col)) {
         stop("time_col missing in model state.")
       }
-
-      if (!time_col %in% task$col_names) {
+      if (!time_col %in% all_cols) {
         stop("time_col not found in prediction task.")
       }
 
-      time_new = task$data(cols = time_col)[[1]]
+      newdata = as.data.frame(task$data(cols = task$feature_names))
 
+      # Récupère group et time
+      id_new = as.numeric(
+        task$backend$data(rows = task$row_ids, cols = id_col)[[1]]
+      )
+      time_new = as.numeric(
+        task$backend$data(rows = task$row_ids, cols = time_col)[[1]]
+      )
+
+      # Z matrix
       if (is.null(z_cols)) {
-
         Z_new = matrix(1, nrow = nrow(newdata), ncol = 1)
-
       } else {
-
+        if (!all(z_cols %in% all_cols)) {
+          stop("Some z_cols missing in prediction task.")
+        }
         Z_new = data.matrix(task$data(cols = z_cols))
       }
 
+      # predict
       p = predict(
         self$model,
         X    = newdata,
@@ -150,5 +193,5 @@ LearnerRegrMERF = R6::R6Class(
 
       list(response = as.numeric(p))
     }
-  )
-)
+  )  # on ferme le private | we close the private
+)    # fin R6Class

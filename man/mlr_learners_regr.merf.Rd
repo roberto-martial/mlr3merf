@@ -6,7 +6,6 @@
 \title{Regression Mixed-Effect Random Forest Learner}
 \description{
 Mixed-Effect Random Forest learner for regression.
-Falls back to randomForest if MERF fails to converge.
 }
 \section{Super classes}{
 \code{\link[mlr3:Learner]{mlr3::Learner}} -> \code{\link[mlr3:LearnerRegr]{mlr3::LearnerRegr}} -> \code{LearnerRegrMERF}
@@ -40,7 +39,6 @@ Falls back to randomForest if MERF fails to converge.
 \if{html}{\out{<a id="method-LearnerRegrMERF-new"></a>}}
 \if{latex}{\out{\hypertarget{method-LearnerRegrMERF-new}{}}}
 \subsection{Method \code{new()}}{
-Creates a new instance of this \link[R6:R6Class]{R6::R6} class.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{LearnerRegrMERF$new()}\if{html}{\out{</div>}}
 }
