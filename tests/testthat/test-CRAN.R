@@ -17,6 +17,8 @@ test_that("regr.merf trains and predicts with valid task", {
   )
 
   task = mlr3::as_task_regr(data, target = "y", id = "test")
+
+  #
   task$col_roles$group   = "grp"
   task$col_roles$order   = "time"
   task$col_roles$feature = setdiff(task$feature_names, c("grp", "time"))
